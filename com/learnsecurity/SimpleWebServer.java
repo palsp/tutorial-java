@@ -14,6 +14,9 @@ package com.learnsecurity;
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.time.format.DateTimeFormatter;
+import java.time.LocalDateTime;
+
 
 public class SimpleWebServer {
 
@@ -65,12 +68,15 @@ public class SimpleWebServer {
     command = st.nextToken();
     pathname = st.nextToken();
 
+
+
     if (command.equals("GET")) {
       /*
        * if the request is a GET try to respond with the file the user is
        * requesting
        */
-      serveFile(osw, pathname);
+      String userAgent = this.getUserAgentLine(br);
+      serveFile(s, osw, pathname, userAgent);
     } else if (command.equals("PUT")) {
       /*
        * if the request is a PUT try to store the file where the user is
@@ -89,11 +95,12 @@ public class SimpleWebServer {
     osw.close();
   }
 
-  public void serveFile(OutputStreamWriter osw, String pathname)
+  public void serveFile(Socket s,OutputStreamWriter osw, String pathname, String userAgent)
       throws Exception {
     FileReader fr = null;
     int c = -1;
     StringBuffer sb = new StringBuffer();
+    String command = "GET";
 
     /*
      * remove the initial slash at the beginning of the pathname in the
@@ -110,11 +117,12 @@ public class SimpleWebServer {
     pathname = "index.html";
 
     if(!this.isAllowFile(pathname)){
-      osw.write("HTTP/1.0 400 Bad Request");
-      return;
+      osw.write("HTTP/1.0 404 Not Found");
+      this.logging(s, command, pathname, 404, userAgent);
+      return; 
     }
 
-    /* try to open file specified by pathname */
+    /* try to open file specified by pathnamename */
     try {
       fr = new FileReader(pathname);
       c = fr.read();
@@ -124,6 +132,7 @@ public class SimpleWebServer {
        * code
        */
       osw.write("HTTP/1.0 404 Not Found\n\n");
+      this.logging(s, command, pathname, 404, userAgent);
       return;
     }
 
@@ -132,6 +141,7 @@ public class SimpleWebServer {
      * return an OK response code and send the contents of the file
      */
     osw.write("HTTP/1.0 200 OK\n\n");
+    this.logging(s, command, pathname, 200, userAgent);
     while (c != -1) {
       sb.append((char) c);
       c = fr.read();
@@ -156,6 +166,50 @@ public class SimpleWebServer {
     }
   }
 
+
+  private String getUserAgentLine(BufferedReader br) throws Exception {
+    String headerLine = null;
+    String targetLine = ":";
+    while ((headerLine = br.readLine()).length() != 0) {
+      if (headerLine.toLowerCase().startsWith("user-agent")) {
+        targetLine = headerLine;
+      }
+    }
+
+    return targetLine;
+  }
+
+  private void logging(Socket s, String command, String path, Number statusCode, String userAgentLine) {
+    try {
+      // get time
+      DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
+      String t = dtf.format(LocalDateTime.now());
+
+      // get user address
+      String addr = s.getRemoteSocketAddress().toString().replace("/", "");
+
+      // get user agent
+      String userAgent = String.join("", new String[] { "\"", userAgentLine.split(":")[1].trim(), "\"" });
+
+      // get endpoint
+      String endpoint = String.join("", new String[] { "\"", command, " ", path, "\"" });
+
+      // construct log line
+      String log = String.join(" ",
+          new String[] { addr, "- -", "[", t, "]", endpoint, statusCode.toString(), userAgent });
+
+      BufferedWriter out = new BufferedWriter(
+          new FileWriter("access.log", true));
+
+      // Writing on output stream
+      out.write(log + "\n");
+      // Closing the connection
+      out.close();
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+
   private boolean isAllowFile(String pathname){
     boolean isValid = false;
 
@@ -164,7 +218,6 @@ public class SimpleWebServer {
         isValid = true;
       }
     }
-
 
     return isValid;
   }
